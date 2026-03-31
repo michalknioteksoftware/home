@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ping Pong – Mouse vs Computer</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: system-ui, sans-serif;
+      color: #e5e7eb;
+    }
+    canvas {
+      background: #020617;
+      border: 2px solid #38bdf8;
+      box-shadow: 0 0 30px rgba(56,189,248,0.4);
+    }
+    #info {
+      position: absolute;
+      top: 16px;
+      text-align: center;
+      width: 100%;
+      font-size: 14px;
+      color: #9ca3af;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Move your mouse up/down over the game to control the left paddle.</div>
+  <canvas id="game" width="800" height="450"></canvas>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Game settings
+    const paddleWidth = 12;
+    const paddleHeight = 80;
+    const paddleMargin = 20;
+    const paddleSpeed = 7;      // for AI
+    const ballRadius = 8;
+    const ballSpeedStart = 5;
+    const maxScore = 5;
+
+    // Game state
+    const player = { x: paddleMargin, y: H / 2 - paddleHeight / 2, score: 0 };
+    const ai = { x: W - paddleMargin - paddleWidth, y: H / 2 - paddleHeight / 2, score: 0 };
+    const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
+    let isServing = true;
+    let lastWinner = null;
+    let gameOver = false;
+    let message = "Move mouse to start";
+
+    function resetBall(direction = 1) {
+      ball.x = W / 2;
+      ball.y = H / 2;
+      // Randomize vertical speed a bit
+      const angle = (Math.random() * 0.6 - 0.3); // between -0.3 and 0.3 radians
+      ball.vx = direction * ballSpeedStart * Math.cos(angle);
+      ball.vy = ballSpeedStart * Math.sin(angle);
+      isServing = false;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    // Mouse controls for player paddle
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseY = e.clientY - rect.top;
+      player.y = clamp(mouseY - paddleHeight / 2, 0, H - paddleHeight);
+
+      if (isServing && !gameOver) {
+        resetBall(Math.random() < 0.5 ? 1 : -1);
+      }
+    });
+
+    function update() {
+      if (gameOver) return;
+
+      // Move ball
+      if (!isServing) {
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+      }
+
+      // Top / bottom collision
+      if (ball.y - ballRadius < 0) {
+        ball.y = ballRadius;
+        ball.vy *= -1;
+      }
+      if (ball.y + ballRadius > H) {
+        ball.y = H - ballRadius;
+        ball.vy *= -1;
+      }
+
+      // Player paddle collision
+      if (
+        ball.x - ballRadius < player.x + paddleWidth &&
+        ball.y > player.y &&
+        ball.y < player.y + paddleHeight &&
+        ball.vx < 0
+      ) {
+        ball.x = player.x + paddleWidth + ballRadius;
+        ball.vx *= -1;
+        // Add some effect based on where it hit the paddle
+        const hitPos = (ball.y - (player.y + paddleHeight / 2)) / (paddleHeight / 2);
+        ball.vy += hitPos * 2.5;
+      }
+
+      // AI paddle collision
+      if (
+        ball.x + ballRadius > ai.x &&
+        ball.y > ai.y &&
+        ball.y < ai.y + paddleHeight &&
+        ball.vx > 0
+      ) {
+        ball.x = ai.x - ballRadius;
+        ball.vx *= -1;
+        const hitPos = (ball.y - (ai.y + paddleHeight / 2)) / (paddleHeight / 2);
+        ball.vy += hitPos * 2.5;
+      }
+
+      // Scoring – only while rally is active to avoid double counting
+      if (!isServing) {
+        if (ball.x + ballRadius < 0) {
+          ai.score++;
+          lastWinner = "ai";
+          handlePointEnd();
+        } else if (ball.x - ballRadius > W) {
+          player.score++;
+          lastWinner = "player";
+          handlePointEnd();
+        }
+      }
+
+      // AI movement (limited speed, not perfect)
+      const aiCenter = ai.y + paddleHeight / 2;
+      const targetY = ball.y - paddleHeight / 2;
+      const diff = targetY - ai.y;
+
+      // Only track ball when it's on AI's half; add a small reaction delay
+      if (ball.x > W * 0.3) {
+        // Slight randomness to make it imperfect
+        const adjustedSpeed = paddleSpeed * (0.6 + Math.random() * 0.5);
+        if (Math.abs(diff) > 6) {
+          ai.y += Math.sign(diff) * adjustedSpeed;
+        }
+      }
+
+      ai.y = clamp(ai.y, 0, H - paddleHeight);
+    }
+
+    function handlePointEnd() {
+      isServing = true;
+      ball.vx = 0;
+      ball.vy = 0;
+
+      if (player.score >= maxScore || ai.score >= maxScore) {
+        gameOver = true;
+        message =
+          player.score > ai.score
+            ? "You win! Refresh or move mouse to play again."
+            : "Computer wins! Refresh or move mouse to play again.";
+      } else {
+        message = lastWinner === "player" ? "You scored! Move mouse to serve." : "Computer scored. Move mouse to serve.";
+      }
+    }
+
+    function drawNet() {
+      ctx.save();
+      ctx.strokeStyle = "#1f2933";
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(W / 2, 0);
+      ctx.lineTo(W / 2, H);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Background gradient
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      grad.addColorStop(0, "#020617");
+      grad.addColorStop(1, "#020617");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      drawNet();
+
+      // Paddles
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(player.x, player.y, paddleWidth, paddleHeight);
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(ai.x, ai.y, paddleWidth, paddleHeight);
+
+      // Ball
+      ctx.beginPath();
+      ctx.fillStyle = "#e5e7eb";
+      ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Scores
+      ctx.fillStyle = "#e5e7eb";
+      ctx.font = "bold 32px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(player.score, W * 0.25, 40);
+      ctx.fillText(ai.score, W * 0.75, 40);
+
+      // Message
+      if (message) {
+        ctx.font = "14px system-ui, sans-serif";
+        ctx.fillStyle = "#9ca3af";
+        ctx.fillText(message, W / 2, H - 20);
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // Initial state
+    handlePointEnd(); // set initial message
+    loop();
+  </script>
+</body>
+</html>
